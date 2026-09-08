@@ -47,7 +47,10 @@ class TelemetryReading(BaseModel):
 class TelemetryIngestPayload(BaseModel):
     """Body of POST /api/v1/telemetry/ingest. Supports single or batched readings."""
 
-    user_id: int
+    # Ignored for JWT-authenticated callers (the user is taken from the token);
+    # for a device caller the owner is resolved from the device_token. Kept as
+    # an optional field only for backwards compatibility with older clients.
+    user_id: int | None = None
     device_token: str | None = Field(
         default=None, description="Required when source='device'; identifies + authenticates the hardware."
     )

@@ -20,6 +20,9 @@ from app.security import decode_access_token
 
 # tokenUrl lets the Swagger UI "Authorize" button drive the password flow.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# Same flow, but a missing Authorization header yields None instead of a 401.
+# Used by endpoints that accept an alternative credential (e.g. a device token).
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 _CREDENTIALS_ERROR = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -38,6 +41,29 @@ def get_current_user(
     Raises 401 if the header is missing, the token is malformed / expired /
     wrong-type, or the user id it carries no longer exists.
     """
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
+        raise _CREDENTIALS_ERROR
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise _CREDENTIALS_ERROR
+    return user
+
+
+def get_optional_current_user(
+    token: str | None = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """
+    Like :func:`get_current_user`, but returns ``None`` when no bearer token is
+    supplied instead of raising 401. A token that IS supplied must still be
+    valid - a malformed / expired / unknown-user token is a 401, not anonymous.
+    """
+    if not token:
+        return None
     try:
         payload = decode_access_token(token)
         user_id = int(payload["sub"])

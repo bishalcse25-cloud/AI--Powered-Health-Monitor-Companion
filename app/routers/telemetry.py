@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.deps import authenticate_device, get_current_user
+from app.deps import authenticate_device, get_current_user, get_optional_current_user
 from app.models import Device, DeviceReading, HealthEntry, User
 from app.schemas import TelemetryIngestPayload, TelemetryReading, TelemetrySource
 from app.services import baseline
@@ -102,6 +102,7 @@ def ingest_telemetry(
     payload: TelemetryIngestPayload,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_current_user),
 ):
     """
     Accepts one or many readings, stores the raw payload immediately (fast,
@@ -109,22 +110,43 @@ def ingest_telemetry(
     normalization + risk-relevant DB writes in a background task so the
     HTTP response returns immediately. This is what keeps the endpoint
     non-blocking under a high-frequency sensor stream.
+
+    Authentication (one of):
+      - a user bearer token (JWT) - the reading is attributed to that user;
+        any ``user_id`` in the body is ignored.
+      - a ``device_token`` with ``source='device'`` - the reading is attributed
+        to the device's owner (device-to-server path, no human in the loop).
+
+    A request with neither is rejected with 401.
     """
     device_id = None
-    if payload.source == TelemetrySource.device:
-        if not payload.device_token:
-            raise HTTPException(status_code=400, detail="device_token is required when source='device'")
+
+    if user is not None:
+        owner_id = user.id
+        # A JWT caller may still name a device it owns as the reading's source.
+        if payload.source == TelemetrySource.device and payload.device_token:
+            device = authenticate_device(db, payload.device_token)
+            if device.user_id != owner_id:
+                raise HTTPException(status_code=403, detail="Device does not belong to this user")
+            device_id = device.id
+            device.last_seen_at = datetime.now(timezone.utc)
+    elif payload.source == TelemetrySource.device and payload.device_token:
         device = authenticate_device(db, payload.device_token)
-        if device.user_id != payload.user_id:
-            raise HTTPException(status_code=403, detail="Device does not belong to this user")
+        owner_id = device.user_id
         device_id = device.id
         device.last_seen_at = datetime.now(timezone.utc)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required: send a bearer token, or a device_token with source='device'",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     reading_id_map: list[int] = []
     for reading in payload.readings:
         device_reading = DeviceReading(
             device_id=device_id,
-            user_id=payload.user_id,
+            user_id=owner_id,
             raw_payload=reading.model_dump(mode="json"),
         )
         db.add(device_reading)
@@ -135,7 +157,7 @@ def ingest_telemetry(
     background_tasks.add_task(
         _process_readings_in_background,
         payload.readings,
-        payload.user_id,
+        owner_id,
         payload.source,
         device_id,
         reading_id_map,
@@ -158,4 +180,4 @@ def simulate_telemetry(
 
     readings = [generate_reading(anomaly=anomaly) for _ in range(max(1, count))]
     payload = TelemetryIngestPayload(user_id=user.id, source=TelemetrySource.simulator, readings=readings)
-    return ingest_telemetry(payload, background_tasks, db)
+    return ingest_telemetry(payload, background_tasks, db, user=user)
