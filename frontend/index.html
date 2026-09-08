@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI-Powered Smart Health Monitor Companion</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+  <div class="max-w-xl mx-auto p-4 sm:p-8 space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold text-slate-900">AI-Powered Smart Health Monitor Companion</h1>
+      <button id="logoutBtn" class="hidden text-sm text-slate-500 hover:text-slate-800 underline">Log out</button>
+    </header>
+
+    <!-- ================= AUTH ================= -->
+    <section id="authCard" class="bg-white rounded-2xl shadow p-6 space-y-4">
+      <div class="flex gap-2 text-sm font-medium">
+        <button id="tabLogin" class="flex-1 py-2 rounded-lg bg-slate-900 text-white">Login</button>
+        <button id="tabRegister" class="flex-1 py-2 rounded-lg bg-slate-200 text-slate-700">Register</button>
+      </div>
+
+      <form id="authForm" class="space-y-3">
+        <input id="email" type="email" required placeholder="Email"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400" />
+        <input id="fullName" type="text" placeholder="Full name (optional)"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 hidden focus:outline-none focus:ring-2 focus:ring-slate-400" />
+        <input id="password" type="password" required minlength="8" placeholder="Password (min 8 chars)"
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400" />
+        <button type="submit" id="authSubmit"
+                class="w-full bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-700">Login</button>
+      </form>
+      <p id="authMsg" class="text-sm"></p>
+    </section>
+
+    <!-- ================= APP ================= -->
+    <section id="appCard" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl shadow p-6 space-y-4">
+        <h2 class="font-semibold text-lg">Log your vitals</h2>
+        <form id="healthForm" class="grid grid-cols-2 gap-3">
+          <label class="text-sm">Heart rate (bpm)
+            <input id="heart_rate_bpm" type="number" step="0.1" min="0" max="300"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2" />
+          </label>
+          <label class="text-sm">SpO2 (%)
+            <input id="spo2_percent" type="number" step="0.1" min="0" max="100"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2" />
+          </label>
+          <label class="text-sm">Body temp (&deg;C)
+            <input id="body_temp_c" type="number" step="0.1" min="25" max="45"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2" />
+          </label>
+          <label class="text-sm">Sleep (hours)
+            <input id="sleep_hours" type="number" step="0.1" min="0" max="24"
+                   class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2" />
+          </label>
+          <button type="submit"
+                  class="col-span-2 bg-emerald-600 text-white rounded-lg py-2 font-medium hover:bg-emerald-500">
+            Evaluate
+          </button>
+        </form>
+        <p id="healthMsg" class="text-sm text-slate-500"></p>
+      </div>
+
+      <!-- Dashboard card -->
+      <div id="resultCard" class="hidden bg-white rounded-2xl shadow p-6 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold text-lg">Assessment</h2>
+          <span id="riskBadge" class="px-3 py-1 rounded-full text-sm font-semibold"></span>
+        </div>
+        <p class="text-sm"><span class="font-medium">Risk score:</span> <span id="riskScore"></span></p>
+        <div>
+          <p class="text-sm font-medium mb-1">Explanation</p>
+          <ul id="explanationList" class="text-sm text-slate-600 list-disc list-inside space-y-1"></ul>
+        </div>
+        <p class="text-xs text-slate-400 border-t pt-2">
+          Model: <span id="modelStatus"></span> &middot;
+          Safeguards: <span id="safeguardStatus"></span> &middot;
+          <span id="latency"></span>
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const API = "/api/v1";
+    const $ = (id) => document.getElementById(id);
+    const token = () => localStorage.getItem("hc_token");
+
+    let mode = "login";
+
+    function setMode(next) {
+      mode = next;
+      const login = mode === "login";
+      $("tabLogin").className = `flex-1 py-2 rounded-lg ${login ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"}`;
+      $("tabRegister").className = `flex-1 py-2 rounded-lg ${!login ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"}`;
+      $("fullName").classList.toggle("hidden", login);
+      $("authSubmit").textContent = login ? "Login" : "Register";
+      $("authMsg").textContent = "";
+    }
+    $("tabLogin").onclick = () => setMode("login");
+    $("tabRegister").onclick = () => setMode("register");
+
+    function showApp(loggedIn) {
+      $("authCard").classList.toggle("hidden", loggedIn);
+      $("appCard").classList.toggle("hidden", !loggedIn);
+      $("logoutBtn").classList.toggle("hidden", !loggedIn);
+    }
+
+    $("logoutBtn").onclick = () => {
+      localStorage.removeItem("hc_token");
+      showApp(false);
+    };
+
+    // ---------- Auth ----------
+    $("authForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      const msg = $("authMsg");
+      msg.className = "text-sm text-slate-500";
+      msg.textContent = "Working...";
+
+      try {
+        if (mode === "register") {
+          const r = await fetch(`${API}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password, full_name: $("fullName").value.trim() || null }),
+          });
+          if (!r.ok) throw new Error((await r.json()).detail || "Registration failed");
+          msg.textContent = "Account created. Logging you in...";
+        }
+
+        // login uses OAuth2 password flow -> form-encoded body
+        const body = new URLSearchParams({ username: email, password });
+        const r = await fetch(`${API}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body,
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || "Login failed");
+        const { access_token } = await r.json();
+        localStorage.setItem("hc_token", access_token);
+        showApp(true);
+      } catch (err) {
+        msg.className = "text-sm text-red-600";
+        msg.textContent = err.message;
+      }
+    };
+
+    // ---------- Health evaluate ----------
+    $("healthForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const msg = $("healthMsg");
+      msg.className = "text-sm text-slate-500";
+      msg.textContent = "Evaluating...";
+
+      const reading = {};
+      for (const f of ["heart_rate_bpm", "spo2_percent", "body_temp_c", "sleep_hours"]) {
+        if ($(f).value !== "") reading[f] = parseFloat($(f).value);
+      }
+
+      try {
+        const r = await fetch(`${API}/health/evaluate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token()}`,
+          },
+          body: JSON.stringify(reading),
+        });
+        if (r.status === 401) {
+          localStorage.removeItem("hc_token");
+          showApp(false);
+          return;
+        }
+        if (!r.ok) throw new Error((await r.json()).detail || "Evaluation failed");
+        renderResult(await r.json());
+        msg.textContent = "";
+      } catch (err) {
+        msg.className = "text-sm text-red-600";
+        msg.textContent = err.message;
+      }
+    };
+
+    function renderResult(res) {
+      const styles = {
+        LOW: "bg-emerald-100 text-emerald-800",
+        ELEVATED: "bg-amber-100 text-amber-800",
+        HIGH_ATTENTION: "bg-red-100 text-red-800",
+      };
+      $("resultCard").classList.remove("hidden");
+      $("riskBadge").textContent = res.risk_level.replace("_", " ");
+      $("riskBadge").className = `px-3 py-1 rounded-full text-sm font-semibold ${styles[res.risk_level] || "bg-slate-200"}`;
+      $("riskScore").textContent = res.risk_score.toFixed(2);
+
+      const list = $("explanationList");
+      list.innerHTML = "";
+      const items = (res.explanations || []).filter((x) => x.triggered);
+      (items.length ? items : res.explanations || []).forEach((x) => {
+        const li = document.createElement("li");
+        li.textContent = x.detail || x.rule;
+        list.appendChild(li);
+      });
+      if (!list.children.length) list.innerHTML = "<li>No specific concerns flagged.</li>";
+
+      $("modelStatus").textContent = res.ml_available
+        ? `active (${res.model_version || "unknown"})`
+        : "unavailable (heuristic fallback)";
+      $("safeguardStatus").textContent = res.safeguard_triggered ? "triggered" : "clear";
+      $("latency").textContent = res.latency_ms != null ? `${res.latency_ms.toFixed(1)} ms` : "";
+    }
+
+    // ---------- Boot ----------
+    setMode("login");
+    showApp(!!token());
+  </script>
+</body>
+</html>

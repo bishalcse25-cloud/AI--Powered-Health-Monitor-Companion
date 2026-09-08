@@ -5,7 +5,7 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.database import Base, engine
 from app import models  # noqa: F401 - import registers all tables on Base
-from app.routers import companion, health, telemetry
+from app.routers import auth, companion, health, telemetry
 
 settings = get_settings()
 
@@ -24,6 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(telemetry.router)
 app.include_router(health.router)
 app.include_router(companion.router)

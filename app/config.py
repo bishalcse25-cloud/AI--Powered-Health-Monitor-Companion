@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # --- Demo user (until real auth is added in a later phase) ---
     demo_user_email: str = "demo@healthcompanion.local"
 
+    # --- JWT authentication ---
+    # Override JWT_SECRET in .env for any non-local deployment. The default
+    # is a throwaway dev value and is NOT safe for production.
+    jwt_secret: str = "dev-insecure-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60 * 24
+
 
 @lru_cache
 def get_settings() -> Settings:
