@@ -58,8 +58,23 @@ class Settings(BaseSettings):
     baseline_window_days: int = 7
     baseline_cache_ttl_seconds: int = 300  # 5 minutes
 
-    # --- Demo user (until real auth is added in a later phase) ---
+    # --- Demo user (only used by scripts / tests now that auth is enforced) ---
     demo_user_email: str = "demo@healthcompanion.local"
+
+    # --- CORS ---
+    # Comma-separated list of browser origins allowed to call the API.
+    # "*" is intentionally NOT accepted - allow_credentials=True forbids it
+    # and a health app should never be wide-open. Add the deployed frontend
+    # origin here (via the CORS_ALLOW_ORIGINS env var) at release time.
+    cors_allow_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    # --- Rate limiting (SlowAPI, per-client-IP) ---
+    rate_limit_auth: str = "5/minute"   # /auth/login, /auth/register
+    rate_limit_chat: str = "20/minute"  # /companion/chat
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
     # --- JWT authentication ---
     # Override JWT_SECRET in .env for any non-local deployment. The default

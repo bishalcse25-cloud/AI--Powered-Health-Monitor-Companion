@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import AIConversation, AIMessage, HealthEntry, User
+from app.rate_limit import limiter
 from app.schemas import ChatHistoryMessage, ChatRole, CompanionChatRequest, CompanionContext
 from app.services import baseline as baseline_service
 from app.services.llm import build_system_prompt, stream_reply
@@ -25,6 +27,7 @@ from app.services.normalization import normalize_reading
 from app.schemas import NormalizedHealthRecord, TelemetrySource
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
+settings = get_settings()
 
 _HISTORY_LIMIT = 10
 
@@ -82,12 +85,14 @@ def _build_context(db: Session, user: User) -> CompanionContext:
 
 
 @router.post("/chat")
+@limiter.limit(settings.rate_limit_chat)
 async def chat(
-    request: CompanionChatRequest,
+    request: Request,
+    payload: CompanionChatRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conversation = _get_or_create_conversation(db, user, request.conversation_id)
+    conversation = _get_or_create_conversation(db, user, payload.conversation_id)
 
     history_rows = (
         db.query(AIMessage)
@@ -103,14 +108,14 @@ async def chat(
     context = _build_context(db, user)
     context.history = history
 
-    user_message = AIMessage(conversation_id=conversation.id, role="user", content=request.message)
+    user_message = AIMessage(conversation_id=conversation.id, role="user", content=payload.message)
     db.add(user_message)
     db.commit()
 
     async def event_stream():
         full_reply = []
         yield f"event: context\ndata: {json.dumps({'conversation_id': conversation.id})}\n\n"
-        async for chunk in stream_reply(context, request.message):
+        async for chunk in stream_reply(context, payload.message):
             full_reply.append(chunk)
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
 

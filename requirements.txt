@@ -5,6 +5,7 @@ anthropic==1.3.0
 anyio==4.15.0
 bcrypt==4.2.1
 click==8.5.0
+Deprecated==1.3.1
 docstring_parser==0.18.0
 fastapi==0.141.1
 greenlet==3.5.5
@@ -13,9 +14,11 @@ httpcore2==2.12.0
 httpx2==2.12.0
 idna==3.19
 jiter==0.16.0
+limits==5.8.0
 Mako==1.4.1
 MarkupSafe==3.0.3
 numpy==2.5.2
+packaging==26.3
 psycopg2-binary==2.9.12
 pydantic==2.13.5
 pydantic-settings==2.15.0
@@ -24,6 +27,7 @@ pyjwt==2.10.1
 python-dotenv==1.2.3
 python-multipart==0.0.20
 scikit-learn==1.9.0
+slowapi==0.1.10
 sniffio==1.3.1
 SQLAlchemy==2.0.52
 starlette==1.6.0
@@ -31,3 +35,4 @@ truststore==0.10.4
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.52.4
+wrapt==2.4.0
