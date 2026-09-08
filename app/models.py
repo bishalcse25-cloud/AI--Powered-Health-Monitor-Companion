@@ -23,6 +23,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -72,11 +73,17 @@ class DeviceReading(Base):
 
     __tablename__ = "device_readings"
 
+    # A user's readings are always queried newest-first, so index the pair.
+    # (user_id alone is covered by this composite's leading column.)
+    __table_args__ = (
+        Index("ix_device_readings_user_received", "user_id", "received_at"),
+    )
+
     id = Column(Integer, primary_key=True)
     # Nullable: only readings that came from a real registered device have one;
     # manual entries and simulator-generated readings leave this empty.
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     received_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     raw_payload = Column(JSON, nullable=False)
     processed = Column(Boolean, default=False)
@@ -94,8 +101,16 @@ class HealthEntry(Base):
 
     __tablename__ = "health_entries"
 
+    # The hot path everywhere in the app: "this user's entries, newest first"
+    # (baseline window, trends, latest reading). A btree on (user_id,
+    # recorded_at) serves those and also any filter on user_id alone, so no
+    # separate user_id index is needed.
+    __table_args__ = (
+        Index("ix_health_entries_user_recorded", "user_id", "recorded_at"),
+    )
+
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False, index=True)
     source = Column(String(20), default="manual")  # "manual" | "device" | "simulator"
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=True)
@@ -122,8 +137,13 @@ class RiskEvaluation(Base):
 
     __tablename__ = "risk_evaluations"
 
+    # Read as "this user's evaluations, newest first" (history + latest badge).
+    __table_args__ = (
+        Index("ix_risk_evaluations_user_created", "user_id", "created_at"),
+    )
+
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     source_entry_id = Column(Integer, ForeignKey("health_entries.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
@@ -160,9 +180,14 @@ class Medication(Base):
 class MedicationLog(Base):
     __tablename__ = "medication_logs"
 
+    # Adherence stats scan one user's logs over a time window.
+    __table_args__ = (
+        Index("ix_medication_logs_user_logged", "user_id", "logged_at"),
+    )
+
     id = Column(Integer, primary_key=True)
     medication_id = Column(Integer, ForeignKey("medications.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String(20), nullable=False)  # "taken" | "skipped" | "missed"
     logged_at = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text, nullable=True)
@@ -173,8 +198,13 @@ class MedicationLog(Base):
 class AIConversation(Base):
     __tablename__ = "ai_conversations"
 
+    # Conversation list for a user, most-recently-updated first.
+    __table_args__ = (
+        Index("ix_ai_conversations_user_updated", "user_id", "updated_at"),
+    )
+
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(255), default="New conversation")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -186,8 +216,13 @@ class AIConversation(Base):
 class AIMessage(Base):
     __tablename__ = "ai_messages"
 
+    # Messages are always fetched per-conversation in chronological order.
+    __table_args__ = (
+        Index("ix_ai_messages_conversation_created", "conversation_id", "created_at"),
+    )
+
     id = Column(Integer, primary_key=True)
-    conversation_id = Column(Integer, ForeignKey("ai_conversations.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("ai_conversations.id"), nullable=False)
     role = Column(String(20), nullable=False)  # "user" | "assistant" | "system"
     content = Column(Text, nullable=False)
     context_snapshot = Column(JSON, nullable=True)  # the health context sent to the LLM, for audit

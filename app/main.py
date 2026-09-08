@@ -1,18 +1,19 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.config import get_settings
-from app.database import Base, engine
-from app import models  # noqa: F401 - import registers all tables on Base
+from app.database import engine
 from app.routers import auth, companion, health, telemetry
 
 settings = get_settings()
 
-# Creates any tables that don't exist yet. Safe to run every startup - it
-# never touches tables that already exist. (A later phase replaces this
-# with proper Alembic migrations for real schema changes.)
-Base.metadata.create_all(bind=engine)
+# The schema is owned by Alembic. Run `alembic upgrade head` to create or
+# update tables (see alembic/README). Nothing is created implicitly at
+# startup, so the running code and the migration history can't drift apart.
 
 app = FastAPI(title="Health Companion API", version="0.2.0")
 
@@ -47,3 +48,9 @@ def health_db():
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
     return {"database": "ok"}
+
+
+# Serve the single-file frontend. Mounted last so it never shadows an API
+# route. `html=True` makes "/app/" resolve to index.html. Visit /app/.
+_FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+app.mount("/app", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

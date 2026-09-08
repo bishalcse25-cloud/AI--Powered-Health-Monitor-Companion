@@ -1,0 +1,42 @@
+Database migrations (Alembic)
+=============================
+
+The database schema is defined by the SQLAlchemy models in app/models.py and
+versioned by the migration scripts in alembic/versions/. The app no longer
+creates tables at startup - Alembic is the single source of truth.
+
+Connection settings come from app/config.py (the .env file). You do not set a
+URL in alembic.ini. Override it for a one-off run with the ALEMBIC_DATABASE_URL
+environment variable.
+
+Common commands (run from the project root, with the venv active)
+----------------------------------------------------------------
+
+  alembic upgrade head              apply all pending migrations
+  alembic current                   show the DB's current revision
+  alembic history                   list all migrations
+  alembic downgrade -1              undo the last migration
+  alembic check                     fail if models and DB have drifted
+
+Creating a new migration after changing a model
+-----------------------------------------------
+
+  1. Edit app/models.py.
+  2. alembic revision --autogenerate -m "short description"
+  3. Read the generated file in alembic/versions/ - autogenerate is a draft,
+     not a final answer (it misses things like data backfills and some
+     server-default changes).
+  4. alembic upgrade head
+
+First-time setup on an existing database
+----------------------------------------
+
+A database that already had the tables (created before Alembic was added) is
+already at revision 0001_baseline. Tell Alembic that once, then upgrade:
+
+  alembic stamp 0001_baseline
+  alembic upgrade head
+
+A brand-new empty database just needs:
+
+  alembic upgrade head
