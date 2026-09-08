@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -105,8 +106,21 @@ class HealthEntry(Base):
     # (baseline window, trends, latest reading). A btree on (user_id,
     # recorded_at) serves those and also any filter on user_id alone, so no
     # separate user_id index is needed.
+    #
+    # The CHECK constraints are the last line of defence against a bad vital
+    # reaching the ML engine / charts - they hold even if a bug bypasses the
+    # Pydantic layer or someone writes to the table directly. NULL is allowed
+    # (a partial reading), only out-of-range numbers are rejected.
     __table_args__ = (
         Index("ix_health_entries_user_recorded", "user_id", "recorded_at"),
+        CheckConstraint(
+            "spo2_percent IS NULL OR (spo2_percent >= 0 AND spo2_percent <= 100)",
+            name="ck_health_entries_spo2_percent_range",
+        ),
+        CheckConstraint(
+            "heart_rate_bpm IS NULL OR (heart_rate_bpm >= 0 AND heart_rate_bpm <= 300)",
+            name="ck_health_entries_heart_rate_bpm_range",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
