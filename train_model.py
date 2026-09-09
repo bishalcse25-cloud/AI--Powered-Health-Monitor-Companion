@@ -6,7 +6,8 @@ What it does, in order:
      patient data. Each row has four vitals and a risk label.
   2. Trains a basic scikit-learn RandomForestClassifier on it.
   3. Prints a quick accuracy / report so you can see it learned something.
-  4. Saves the fitted model to  model.pkl  in this same folder.
+  4. Saves the fitted model to  app/ml/model.joblib  - exactly where
+     app/ml/predict.py loads it from at import time.
 
 Run it from the project root (Command Prompt / cmd.exe):
 
@@ -14,38 +15,38 @@ Run it from the project root (Command Prompt / cmd.exe):
 
 Requirements (install once, into your virtualenv):
 
-    pip install scikit-learn numpy
+    pip install scikit-learn numpy joblib
 
 Feature order is fixed and MUST stay in sync with app/ml/predict.py:
     [heart_rate_bpm, spo2_percent, body_temp_c, sleep_hours]
 Label classes: "LOW", "ELEVATED", "HIGH_ATTENTION"
 
-Note: this script only writes model.pkl. Wiring the app to actually load it
-is a separate step (app/ml/predict.py currently looks for model.joblib) - not
-done here on purpose.
+Re-run this whenever the feature list or the synthetic profiles change, then
+restart the API so predict.py picks up the new artifact.
 """
 
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 
 import numpy as np
 
 try:
+    import joblib
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.metrics import classification_report
     from sklearn.model_selection import train_test_split
 except ImportError:  # pragma: no cover - friendly message for a beginner setup
     raise SystemExit(
-        "scikit-learn is not installed in this environment.\n"
-        "Install it first:  pip install scikit-learn numpy"
+        "scikit-learn / joblib is not installed in this environment.\n"
+        "Install first:  pip install scikit-learn numpy joblib"
     )
 
 
 FEATURE_NAMES = ["heart_rate_bpm", "spo2_percent", "body_temp_c", "sleep_hours"]
 CLASS_NAMES = ["LOW", "ELEVATED", "HIGH_ATTENTION"]
-OUTPUT_PATH = Path(__file__).parent / "model.pkl"
+# Must match app/ml/predict.py::MODEL_PATH exactly.
+OUTPUT_PATH = Path(__file__).parent / "app" / "ml" / "model.joblib"
 RANDOM_SEED = 42
 N_SAMPLES = 3000
 
@@ -130,8 +131,8 @@ def main() -> None:
     print(f"\nHold-out accuracy: {accuracy:.3f}\n")
     print(classification_report(y_test, model.predict(X_test)))
 
-    with OUTPUT_PATH.open("wb") as fh:
-        pickle.dump(model, fh)
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, OUTPUT_PATH)
 
     print(f"Saved model -> {OUTPUT_PATH}")
     print(f"Feature order: {FEATURE_NAMES}")

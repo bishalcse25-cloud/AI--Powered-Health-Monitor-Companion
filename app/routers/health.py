@@ -10,12 +10,9 @@ Pillar 2 + trends: ML risk evaluation and historical trend queries.
 from __future__ import annotations
 
 import logging
-import pickle
-import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -23,9 +20,9 @@ from app.database import get_db
 from app.deps import get_current_auth_user, get_current_user
 from app.models import HealthEntry, RiskEvaluation, User
 from app.schemas import (
+    HealthEntryOut,
     MetricTrend,
     NormalizedHealthRecord,
-    RiskLevel,
     RiskPredictionResponse,
     TelemetryReading,
     TelemetrySource,
@@ -35,77 +32,16 @@ from app.schemas import (
 from app.services import baseline as baseline_service
 from app.services.ml_engine import evaluate as ml_evaluate
 from app.services.normalization import normalize_reading
-from app.services.safeguards import evaluate_safeguards
 
 logger = logging.getLogger("health_companion.health_router")
 
 router = APIRouter(prefix="/api/v1/health", tags=["health"])
 
-# --- Trained model for POST /evaluate ---------------------------------------
-# train_model.py writes model.pkl to the project root. We load it once at
-# import time and use it for /evaluate in place of the heuristic fallback in
-# app/ml/predict.py. If the file is missing or fails to load / infer, we fall
-# back to the shared ml_engine (heuristic) so the endpoint never 500s.
-_EVALUATE_MODEL_PATH = Path(__file__).resolve().parents[2] / "model.pkl"
-# Feature order is fixed by train_model.py and must not change.
-_EVALUATE_MODEL_FEATURES = ["heart_rate_bpm", "spo2_percent", "body_temp_c", "sleep_hours"]
-_EVALUATE_MODEL_VERSION = "model-pkl-v1"
-_RISK_ORDER = {RiskLevel.low: 0, RiskLevel.elevated: 1, RiskLevel.high_attention: 2}
-
-
-def _load_evaluate_model():
-    try:
-        with _EVALUATE_MODEL_PATH.open("rb") as fh:
-            return pickle.load(fh)
-    except FileNotFoundError:
-        logger.info("%s not found; /evaluate will use the heuristic fallback", _EVALUATE_MODEL_PATH)
-    except Exception:
-        logger.exception("Failed to load %s; /evaluate will use the heuristic fallback", _EVALUATE_MODEL_PATH)
-    return None
-
-
-_EVALUATE_MODEL = _load_evaluate_model()
-
-
-def _evaluate_with_model(
-    record: NormalizedHealthRecord, baseline: dict[str, float]
-) -> RiskPredictionResponse | None:
-    """
-    Run model.pkl on a normalized reading and combine it with the deterministic
-    safeguards exactly the way app/services/ml_engine.evaluate does (a safeguard
-    can only push the risk level UP). Returns None when the model is unavailable
-    or errors, so the caller falls back to the shared heuristic engine.
-    """
-    if _EVALUATE_MODEL is None:
-        return None
-
-    start = time.perf_counter()
-    try:
-        row = [[float(getattr(record, f) or 0) for f in _EVALUATE_MODEL_FEATURES]]
-        proba = _EVALUATE_MODEL.predict_proba(row)[0]
-        classes = list(_EVALUATE_MODEL.classes_)
-        probabilities = {str(cls): round(float(p), 3) for cls, p in zip(classes, proba)}
-        ml_level = RiskLevel(max(probabilities, key=probabilities.get))
-        ml_score = probabilities.get(RiskLevel.high_attention.value, max(probabilities.values()))
-    except Exception:
-        logger.exception("model.pkl inference failed; /evaluate falling back to heuristic engine")
-        return None
-
-    safeguard_level, safeguard_triggered, explanations = evaluate_safeguards(record)
-    final_level = (
-        ml_level if _RISK_ORDER[ml_level] >= _RISK_ORDER[safeguard_level] else safeguard_level
-    )
-
-    return RiskPredictionResponse(
-        risk_level=final_level,
-        risk_score=max(float(ml_score), _RISK_ORDER[safeguard_level] / 2),
-        probabilities=probabilities,
-        explanations=explanations,
-        ml_available=True,
-        model_version=_EVALUATE_MODEL_VERSION,
-        safeguard_triggered=safeguard_triggered,
-        latency_ms=(time.perf_counter() - start) * 1000,
-    )
+# POST /evaluate, the companion context builder, and predict.py all go through
+# the one ML path: app/services/ml_engine.evaluate -> app/ml/predict.predict,
+# which loads the trained model from app/ml/model.joblib (see train_model.py)
+# and transparently falls back to the explainable heuristic if that file is
+# missing or fails to load. There is no second, endpoint-local model here.
 
 _TRACKED_METRICS = {
     "heart_rate_bpm": "avg_hr",
@@ -165,7 +101,7 @@ def evaluate_health(
         source_entry_id = latest.id
 
     baseline = baseline_service.get_baseline(db, user.id)
-    result = _evaluate_with_model(normalized, baseline) or ml_evaluate(normalized, baseline)
+    result = ml_evaluate(normalized, baseline)
 
     db.add(
         RiskEvaluation(
@@ -184,6 +120,27 @@ def evaluate_health(
     db.commit()
 
     return result
+
+
+@router.get("/entries", response_model=list[HealthEntryOut])
+def list_health_entries(
+    days: int = Query(7, ge=1, le=90, description="How many days back to return."),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    The user's stored health entries over the last `days`, oldest first - the
+    raw series the dashboard charts plot. Auth required.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    return (
+        db.query(HealthEntry)
+        .filter(HealthEntry.user_id == user.id, HealthEntry.recorded_at >= since)
+        .order_by(HealthEntry.recorded_at.asc())
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get("/trends", response_model=TrendsResponse)

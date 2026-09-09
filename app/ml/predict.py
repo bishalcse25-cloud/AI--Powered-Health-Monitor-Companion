@@ -18,9 +18,9 @@ needs to know whether a real trained model is present. Two modes:
 Either way ``predict`` is fast (<10ms) and never raises: a bad model can only
 downgrade the service to the heuristic, never 500 the API.
 
-To produce ``model.joblib`` see ``train_model.py`` (adapt its final step to
-``joblib.dump(model, "app/ml/model.joblib")``). The feature order below is the
-contract between training and serving and must not change.
+To produce ``model.joblib`` run ``python train_model.py`` from the project
+root - it writes the artifact straight to ``app/ml/model.joblib``. The feature
+order below is the contract between training and serving and must not change.
 """
 
 from __future__ import annotations
