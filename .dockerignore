@@ -1,0 +1,25 @@
+# Keep the build context small and the image clean.
+.git
+.gitignore
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets - passed in at runtime via env_file / -e, never baked into the image
+.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Docs / local-only
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

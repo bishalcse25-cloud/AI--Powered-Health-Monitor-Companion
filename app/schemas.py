@@ -156,7 +156,9 @@ class CompanionContext(BaseModel):
 
 
 class CompanionChatRequest(BaseModel):
-    user_id: int
+    # Ignored server-side (the user comes from the bearer token); optional so
+    # clients don't have to send a placeholder.
+    user_id: int | None = None
     conversation_id: int | None = None
     message: str = Field(min_length=1, max_length=4000)
 
@@ -189,6 +191,25 @@ class Token(BaseModel):
 class TrendWindow(str, Enum):
     seven_day = "7d"
     thirty_day = "30d"
+
+
+class HealthEntryOut(BaseModel):
+    """One stored health_entries row, for the frontend's time-series charts."""
+
+    id: int
+    recorded_at: datetime
+    source: str
+    heart_rate_bpm: float | None = None
+    spo2_percent: float | None = None
+    body_temp_c: float | None = None
+    systolic_bp: int | None = None
+    diastolic_bp: int | None = None
+    respiratory_rate: float | None = None
+    steps: int | None = None
+    sleep_hours: float | None = None
+    weight_kg: float | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class MetricTrend(BaseModel):

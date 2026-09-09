@@ -1,0 +1,46 @@
+# Local / single-host deployment.
+#
+#   cp .env.example .env      # then fill in DB_PASSWORD and JWT_SECRET
+#   docker compose up --build
+#
+# The API is then on http://localhost:8000 (and the bundled frontend on
+# http://localhost:8000/app/). Compose reads .env automatically for the
+# ${VAR} substitutions below and also passes it into the api container.
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      POSTGRES_DB: ${DB_NAME:-health_companion}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"          # optional: exposes Postgres to the host for psql / alembic
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-health_companion}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override whatever .env says: inside the compose network the database
+      # host is the service name, not localhost.
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
