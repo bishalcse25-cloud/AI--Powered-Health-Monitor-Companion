@@ -45,9 +45,12 @@ export interface LiveVitals {
   lat: number | null;
   lng: number | null;
   compass: { x: number; y: number; z: number };
-  /** true when the accelerometer flagged a fall / impact (raw field: Alert). */
+  /** true when the wearable is reporting a fall (numeric `fallalert`, or the
+   *  `Alert` message string mentions falling). */
   fallAlert: boolean;
-  /** device-reported status string (raw field: STATUS). */
+  /** human-readable device alert message, raw field `Alert` (e.g. "Person Falling!"). */
+  alertMessage: string;
+  /** device-reported status code, raw field `STATUS`. */
   status: string;
 }
 
@@ -60,8 +63,11 @@ interface RawSnapshot {
   Lat?: number;
   Long?: number;
   Compass?: { X?: number; Y?: number; Z?: number };
-  Alert?: number;
-  STATUS?: string;
+  /** message string, e.g. "Person Falling!" / "Safe". */
+  Alert?: string | number;
+  /** clean 0/1 fall flag (preferred when present). */
+  fallalert?: number;
+  STATUS?: string | number;
 }
 
 function num(value: unknown): number | null {
@@ -69,6 +75,12 @@ function num(value: unknown): number | null {
 }
 
 function parseSnapshot(raw: RawSnapshot): LiveVitals {
+  const alertMessage = raw.Alert == null ? "" : String(raw.Alert);
+  const fallAlert =
+    typeof raw.fallalert === "number"
+      ? raw.fallalert === 1
+      : /fall|falling/i.test(alertMessage);
+
   return {
     receivedAt: Date.now(),
     heartRateBpm: num(raw.BPM),
@@ -82,8 +94,9 @@ function parseSnapshot(raw: RawSnapshot): LiveVitals {
       y: num(raw.Compass?.Y) ?? 0,
       z: num(raw.Compass?.Z) ?? 0,
     },
-    fallAlert: raw.Alert === 1,
-    status: typeof raw.STATUS === "string" ? raw.STATUS : "",
+    fallAlert,
+    alertMessage,
+    status: raw.STATUS == null ? "" : String(raw.STATUS),
   };
 }
 

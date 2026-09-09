@@ -86,6 +86,7 @@ export function LiveMonitor() {
           <p className="dashboard__sub">
             Real-time feed from the wearable
             {latest ? ` · updated ${fmtClock(latest.receivedAt)}` : ""}
+            {latest?.alertMessage && !latest.fallAlert ? ` · device: ${latest.alertMessage}` : ""}
           </p>
         </div>
         <div className="dashboard__actions">
@@ -281,10 +282,11 @@ function FallAlert({ startedAt, latest }: { startedAt: number | null; latest: Li
     <div className="alert-banner" role="alert">
       <AlertTriangleIcon width={18} height={18} />
       <div className="alert-banner__body">
-        <span className="alert-banner__title">Fall detected</span>
+        <span className="alert-banner__title">
+          {latest?.alertMessage || "Fall detected"}
+        </span>
         <span className="alert-banner__text">
-          Reported {new Date(startedAt).toLocaleTimeString()}. Status:{" "}
-          {latest?.status || "unknown"}. Contact a caregiver if the person does not respond.{" "}
+          Reported {new Date(startedAt).toLocaleTimeString()}. Contact a caregiver if the person does not respond.{" "}
           <button className="linklike" onClick={playAlarm}>
             Replay tone
           </button>
